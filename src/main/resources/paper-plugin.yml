@@ -1,5 +1,5 @@
 name: LuckTags
-version: '1.0'
+version: '1.1'
 main: dev.bauhd.lucktags.LuckTags
 authors: [BauHD]
 api-version: '1.21.7'
