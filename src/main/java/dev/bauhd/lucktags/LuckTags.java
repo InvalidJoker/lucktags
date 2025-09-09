@@ -1,9 +1,12 @@
 package dev.bauhd.lucktags;
 
+import io.github.miniplaceholders.api.MiniPlaceholders;
 import io.papermc.paper.event.player.AsyncChatEvent;
 import java.util.Objects;
+import me.clip.placeholderapi.PlaceholderAPI;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.minimessage.MiniMessage;
+import net.kyori.adventure.text.minimessage.tag.Tag;
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder;
 import net.kyori.adventure.text.minimessage.tag.resolver.TagResolver;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
@@ -16,6 +19,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class LuckTags extends JavaPlugin implements Listener {
@@ -33,6 +37,8 @@ public final class LuckTags extends JavaPlugin implements Listener {
    */
 
   private LuckPerms luckPerms;
+  private boolean miniPlaceholders;
+  private boolean placeholderApi;
 
   @Override
   public void onEnable() {
@@ -47,7 +53,11 @@ public final class LuckTags extends JavaPlugin implements Listener {
       }
     });
 
-    this.getServer().getPluginManager().registerEvents(this, this);
+    final PluginManager pluginManager = this.getServer().getPluginManager();
+    pluginManager.registerEvents(this, this);
+
+    this.miniPlaceholders = pluginManager.isPluginEnabled("MiniPlaceholderAPI");
+    this.placeholderApi = pluginManager.isPluginEnabled("PlaceholderAPI");
   }
 
   @EventHandler
@@ -64,10 +74,9 @@ public final class LuckTags extends JavaPlugin implements Listener {
         .getCachedData().getMetaData();
 
     final Component format = MiniMessage.miniMessage().deserialize(
-        Objects.requireNonNull(this.getConfig().getString("chat-format")), TagResolver.builder()
-            .resolver(Placeholder.parsed("prefix", this.format(meta.getPrefix())))
-            .resolver(Placeholder.unparsed("player", event.getPlayer().getName()))
-            .resolver(Placeholder.parsed("suffix", this.format(meta.getSuffix())))
+        Objects.requireNonNull(this.getConfig().getString("chat-format")),
+        event.getPlayer(),
+        this.resolver(meta, event.getPlayer())
             .resolver(Placeholder.component("message", event.message()))
             .build());
 
@@ -78,17 +87,34 @@ public final class LuckTags extends JavaPlugin implements Listener {
     final CachedMetaData meta = user.getCachedData().getMetaData();
 
     final Component playerListName = MiniMessage.miniMessage().deserialize(
-        Objects.requireNonNull(this.getConfig().getString("tab-format")), TagResolver.builder()
-            .resolver(Placeholder.parsed("prefix", this.format(meta.getPrefix())))
-            .resolver(Placeholder.unparsed("player", player.getName()))
-            .resolver(Placeholder.parsed("suffix", this.format(meta.getSuffix())))
-            .build());
+        Objects.requireNonNull(this.getConfig().getString("tab-format")),
+        player,
+        this.resolver(meta, player).build());
     player.playerListName(playerListName);
     player.setPlayerListOrder(meta.getWeight());
 
     if (this.getConfig().getBoolean("override-display-name")) {
       player.displayName(playerListName);
     }
+  }
+
+  private TagResolver.Builder resolver(final CachedMetaData meta, final Player player) {
+    final TagResolver.Builder builder = TagResolver.builder()
+        .resolver(Placeholder.parsed("prefix", this.format(meta.getPrefix())))
+        .resolver(Placeholder.unparsed("player", player.getName()))
+        .resolver(Placeholder.parsed("suffix", this.format(meta.getSuffix())));
+    if (this.miniPlaceholders) {
+      builder.resolver(MiniPlaceholders.audienceGlobalPlaceholders());
+    }
+    if (this.placeholderApi) {
+      builder.resolver(TagResolver.resolver("papi", (argument, context) -> {
+        final String parsedPlaceholder = PlaceholderAPI.setPlaceholders(player,
+            '%' + argument.popOr("papi tag requires an argument").value() + '%');
+        return Tag.selfClosingInserting(
+            LegacyComponentSerializer.legacySection().deserialize(parsedPlaceholder));
+      }));
+    }
+    return builder;
   }
 
   private String format(final String value) {
